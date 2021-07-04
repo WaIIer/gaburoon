@@ -1,0 +1,9 @@
+bin
+.ionide
+msbuild.binlog
+obj
+*.json
+database
+*.jpg
+*.jpeg
+*.png

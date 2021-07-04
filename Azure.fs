@@ -4,12 +4,16 @@ open Gaburoon.Model
 open Gaburoon.Setup
 
 open System
-open Azure.Security
+open System.IO
 open Azure.Identity
 open Azure.Security.KeyVault.Secrets
 open Azure.Storage.Blobs
-open Azure.Storage.Blobs.Models
+open Microsoft.Azure.CognitiveServices.Vision.ComputerVision
+
+
 open System.IO
+open Gaburoon.Logger
+open Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models
 
 // TODO: un-hard code this
 let private secretKeys =
@@ -64,3 +68,37 @@ let getServiceAccountJson (config: GaburoonConfiguration) connectionString =
     if File.ReadAllText serviceAccountFile
        |> String.IsNullOrEmpty then
         failwith "Unable to download service account file"
+
+let private cvClientEndpoint cvResource =
+    $"https://{cvResource}.cognitiveservices.azure.com/"
+
+let classifyImage model (downloadFile: DownloadFile) =
+    logInfo $"Classifying {downloadFile.Path}"
+
+    try
+        let image = downloadFile.Path
+        let key1 = model.Secrets.["gaburoon-cv-key1"]
+
+        let imageStream =
+            new FileStream(image, FileMode.Open, FileAccess.Read)
+
+        let cvClient =
+            new ComputerVisionClient(ApiKeyServiceClientCredentials(key1))
+
+        cvClient.Endpoint <- cvClientEndpoint model.Configuration.ComputerVisionResource
+
+        let adultInfo =
+            (cvClient.AnalyzeImageInStreamWithHttpMessagesAsync(imageStream, [| Nullable(VisualFeatureTypes.Adult) |])
+             |> Async.AwaitTask
+             |> Async.RunSynchronously)
+                .Body
+                .Adult
+
+        if adultInfo.IsAdultContent then
+            NSFW
+        else
+            SFW
+    with
+    | e ->
+        logDebug $"Error getting info from azure: {e |> string}"
+        NSFW

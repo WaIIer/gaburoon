@@ -17,7 +17,7 @@ type Folder =
       mutable GoogleId: string option }
 
 type GaburoonConfiguration =
-    { Folders: Folder list
+    { Folders: IDictionary<string, Folder>
       KeyVaultName: string
       StorageAccount: string
       BlobContainer: string
@@ -36,3 +36,7 @@ type GaburoonModel =
       ValidFolders: Dictionary<string, string * Folder>
       InvalidFolders: HashSet<string>
       ConnectionString: string }
+
+type DownloadFile =
+    { Path: string
+      GoogleFile: Google.Apis.Drive.v3.Data.File }

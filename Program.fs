@@ -1,5 +1,6 @@
 open System
 open System.Collections.Generic
+open Newtonsoft.Json
 
 open Gaburoon.Model
 open Gaburoon.Setup
@@ -7,13 +8,18 @@ open Gaburoon.Azure
 open Gaburoon.DataBase
 open Gaburoon.GoogleDrive
 open Gaburoon.Discord
+open Gaburoon.Logger
+open Gaburoon.Gaburoon
 
 let deafultConfigFile = "GaburoonConfig.json"
 
 let initializeGaburron (config: GaburoonConfiguration) =
     let secrets = getSecrets config
 
-    getServiceAccountJson config secrets.["gaburoonsa-connection-sring1"]
+    (JsonConvert.SerializeObject(secrets, Formatting.Indented))
+    |> logInfo
+
+    getServiceAccountJson config secrets.["gaburoonsa-connection-string1"]
 
     let dbConnectionString =
         try
@@ -26,14 +32,23 @@ let initializeGaburron (config: GaburoonConfiguration) =
     let (discordClient, textChannel) =
         getDiscordClient secrets.["DISCORD-TOKEN"] config
 
-    { GoogleDriveService = googleDriveService
-      DiscordClient = discordClient
-      TextChannel = textChannel
-      Configuration = config
-      ValidFolders = Dictionary<string, string * Folder>()
-      InvalidFolders = HashSet<string>()
-      Secrets = secrets
-      ConnectionString = config.ConnectionString }
+    let model =
+        { GoogleDriveService = googleDriveService
+          DiscordClient = discordClient
+          TextChannel = textChannel
+          Configuration = config
+          ValidFolders = getValidFolders config googleDriveService
+          InvalidFolders = HashSet<string>()
+          Secrets = secrets
+          ConnectionString = config.ConnectionString }
+
+
+    (JsonConvert.SerializeObject(model.ValidFolders, Formatting.Indented))
+    |> logInfo
+
+
+    model
+
 
 [<EntryPoint>]
 let main argv =
@@ -46,5 +61,8 @@ let main argv =
         |> parseJsonConfig
 
     let model = initializeGaburron config
+
+
+    runGaburoon model
 
     0

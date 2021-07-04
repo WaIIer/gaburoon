@@ -26,7 +26,10 @@ let initializeDatabase (config: GaburoonConfiguration) =
     if not (Directory.Exists config.DBPath) then
         try
             logInfo $"Creating {config.DBPath}"
-            Directory.CreateDirectory config.DBPath |> ignore
+
+            Directory.CreateDirectory(Path.GetDirectoryName config.DBPath)
+            |> ignore
+
             logInfo $"Successfully created {config.DBPath}"
         with
         | e -> failwith $"Failed to create {config.DBPath}: {e |> string}"

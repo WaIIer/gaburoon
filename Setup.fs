@@ -26,7 +26,8 @@ let private parseFolderList contentType folders =
 let private dbPath (guild: string) (textChannel: string) =
     Path.Combine [| Directory.GetCurrentDirectory()
                     "database"
-                    $"""{guild.Replace(" ", "-")}.{textChannel.Replace(" ", "-")}""" |]
+                    $"""{guild.Replace(" ", "-")}.{textChannel.Replace(" ", "-")}"""
+                    "db.sqlite" |]
 
 let private dbConnectionString dbPath = dbPath |> (sprintf "Data Source=%s")
 
@@ -44,6 +45,8 @@ let parseJsonConfig (configFile) : GaburoonConfiguration =
     { Folders =
           (jsonConfig.SFWFolders |> parseFolderList SFW)
           @ (jsonConfig.NSFWFolders |> parseFolderList NSFW)
+          |> List.map (fun f -> f.Name, f)
+          |> dict
       KeyVaultName = jsonConfig.KeyVault
       StorageAccount = jsonConfig.StorageAccount
       BlobContainer = jsonConfig.BlobContainer

@@ -9,6 +9,7 @@ open Gaburoon.Logger
 open Gaburoon.Model
 open System.Threading.Tasks
 open System
+open Google.Apis.Drive.v3.Data
 
 let private discordLogger (msg: LogMessage) =
     let sev = msg.Severity
@@ -71,3 +72,22 @@ let getDiscordClient discordToken (config: GaburoonConfiguration) =
     logInfo $"Bot started, posting to {guild.Name} #{channel.Name}"
 
     discordClient, channel
+
+let private sendImage (textChannel: SocketTextChannel) path message contentType =
+    let restUserMessage =
+        textChannel.SendFileAsync(path, message, false, isSpoiler = (contentType = NSFW))
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    System.IO.File.Delete path |> ignore
+
+    restUserMessage
+
+let postToDiscord model (downloadFile: DownloadFile, contentType) =
+    logInfo $"posting {contentType} image: {downloadFile.Path}"
+
+    try
+        sendImage model.TextChannel downloadFile.Path downloadFile.Path contentType
+        |> ignore
+    with
+    | e -> logError $"Failed to post {downloadFile.Path}: {e |> string}"
