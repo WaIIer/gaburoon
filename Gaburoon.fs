@@ -33,11 +33,6 @@ let private isAllowedExtension (file: Google.Apis.Drive.v3.Data.File) =
     allowedFileExtensions
     |> Array.contains (Path.GetExtension file.Name)
 
-let private validateFile (model: GaburoonModel) (file: Google.Apis.Drive.v3.Data.File) =
-    logInfo $"Validating parent of {file.Name}"
-
-    model.ValidFolders.ContainsKey(file.Parents |> Seq.head)
-
 let getContentType model (downloadFile: DownloadFile) =
     logInfo $"Getting content type of {downloadFile.Path}"
 
