@@ -9,6 +9,7 @@ open Gaburoon.Model
 open Gaburoon.Logger
 open System.Collections.Generic
 open System.IO
+open Google.Apis.Drive.v3.Data
 
 let private authenticate () =
     let scope =
@@ -51,6 +52,29 @@ let getValidFolders (config: GaburoonConfiguration) (googleDriveService: DriveSe
             | _ -> logCrit $"Unable to find folder: {folder.Name} in Google Drive")
 
     validFolders
+
+/// Validate that the change to the file in Google Drive is not
+/// the file getting 'trashed'/deleted
+let changeIsNotTrashed (change: Change) =
+    logInfo $"Checing if change is trashed: {change.File.Trashed}"
+
+    (not change.File.Trashed.HasValue)
+    || not change.File.Trashed.Value
+
+/// Verify that the file uploaded to the drive is
+/// a valid image type
+let isAllowedExtension (file: File) =
+    logInfo $"Checking extension of {file.Name}"
+
+    let allowedFileExtensions =
+        [| ".jpg"
+           ".jpeg"
+           ".gif"
+           ".png"
+           "webp" |]
+
+    allowedFileExtensions
+    |> Array.contains (Path.GetExtension file.Name)
 
 let downloadFile model (file: Data.File) =
     logInfo $"Downloading: {file.Name}"

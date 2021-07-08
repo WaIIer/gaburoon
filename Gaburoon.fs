@@ -1,37 +1,64 @@
 module Gaburoon.Gaburoon
 
-open System
 open Gaburoon.Model
 open Gaburoon.GoogleDrive
 open Gaburoon.Logger
+open Gaburoon.DataBase
 
 
+open System.Text
 open Google.Apis.Drive.v3.Data
 open System.IO
 open Gaburoon.Azure
 open Gaburoon.Discord
+open System.Threading.Tasks
+open Discord.WebSocket
+open System.Text.RegularExpressions
+open System
 
 let private changeSpaces = "drive"
 let private changeRequestFields = "*"
 
-let private changeIsNotTrashed (change: Change) =
-    logInfo $"Checing if change is trashed: {change.File.Trashed}"
+/// Execute command
+/// called from onMessage
+let private handleCommand model (cmd: String) (imageId: uint64) =
+    logInfo $"Processing command: !{cmd} {imageId}"
+    let cmd = cmd.ToUpper()
+    let messageId = getMessageIdFromImgageId model imageId
 
-    (not change.File.Trashed.HasValue)
-    || not change.File.Trashed.Value
+    if messageId.IsSome then
+        logInfo $"Got Discord Message ID: {messageId.Value}"
 
-let private isAllowedExtension (file: Google.Apis.Drive.v3.Data.File) =
-    logInfo $"Checking extension of {file.Name}"
+        match cmd with
+        | "DELTE" -> ()
+        | "HIDE"
+        | "SPOILER" -> ()
+        | _ -> printfn $"Unknown command {cmd}"
+    else
+        logInfo $"Failed to get Discord Message ID from: {imageId}"
 
-    let allowedFileExtensions =
-        [| ".jpg"
-           ".jpeg"
-           ".gif"
-           ".png"
-           "webp" |]
+    Task.CompletedTask
 
-    allowedFileExtensions
-    |> Array.contains (Path.GetExtension file.Name)
+/// Run this function whenever a message is posted in Gaburoon's text channel
+/// Look for a command (![command] [post id])
+/// Process command if it matches syntax
+let private onMessage model (message: SocketMessage) =
+    let content = message.Content
+
+    if content.Length = 0 then
+        Task.CompletedTask
+    else
+        let r = @"!(\w+) ([0-9]+)"
+
+        let matches =
+            Regex.Match(content, r).Groups
+            |> Seq.map (fun group -> group.Value)
+            |> Array.ofSeq
+        // If valid command
+        if (matches |> Array.length) = 3 then
+            handleCommand model matches.[1] (matches.[2] |> UInt64.Parse)
+        else
+            Task.CompletedTask
 
 let getContentType model (downloadFile: DownloadFile) =
     logInfo $"Getting content type of {downloadFile.Path}"
@@ -67,9 +94,11 @@ let private lookForChanges model startToken =
     |> Seq.map (fun change -> change.File)
     |> Seq.filter isAllowedExtension
     |> Seq.filter (validateFile model)
-    |> Seq.map (downloadFile model)
-    |> Seq.map (getContentType model)
-    |> Seq.map (postToDiscord model)
+    |> Seq.map (
+        (downloadFile model)
+        >> (getContentType model)
+        >> (postToDiscord model)
+    )
     |> Seq.iter ignore
 
     if changes.Count = 0 then
