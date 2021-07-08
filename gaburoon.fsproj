@@ -7,6 +7,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <Compile Include="Util.fs" />
     <Compile Include="Logger.fs" />
     <Compile Include="Model.fs" />
     <Compile Include="Setup.fs" />

@@ -24,20 +24,25 @@ let private changeRequestFields = "*"
 let private handleCommand model (cmd: String) (imageId: uint64) =
     logInfo $"Processing command: !{cmd} {imageId}"
     let cmd = cmd.ToUpper()
-    let messageId = getMessageIdFromImgageId model imageId
 
-    if messageId.IsSome then
-        logInfo $"Got Discord Message ID: {messageId.Value}"
+    try
+        let messageId = getMessageIdFromImgageId model imageId
+
+        logInfo $"Got Discord Message ID: {messageId}"
 
         match cmd with
         | "DELTE" -> ()
         | "HIDE"
         | "SPOILER" -> ()
         | _ -> printfn $"Unknown command {cmd}"
-    else
-        logInfo $"Failed to get Discord Message ID from: {imageId}"
+    with
+    | e ->
+        printfn "Failed to get message ID from: {imageId}"
+        printfn $"{e}"
 
     Task.CompletedTask
+
+
 
 /// Run this function whenever a message is posted in Gaburoon's text channel
 /// Look for a command (![command] [post id])
