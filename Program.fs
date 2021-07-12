@@ -14,6 +14,8 @@ open Gaburoon.Gaburoon
 let deafultConfigFile = "GaburoonConfig.json"
 
 let initializeGaburron (config: GaburoonConfiguration) =
+    initializeLogger config
+
     let secrets = getSecrets config
 
     (JsonConvert.SerializeObject(secrets, Formatting.Indented))
@@ -21,11 +23,10 @@ let initializeGaburron (config: GaburoonConfiguration) =
 
     getServiceAccountJson config secrets.["gaburoonsa-connection-string1"]
 
-    let dbConnectionString =
-        try
-            initializeDatabase config
-        with
-        | e -> failwith $"Failed to create initialize database: {e}"
+    try
+        initializeDatabase config
+    with
+    | e -> failwith $"Failed to create initialize database: {e}"
 
     let googleDriveService = getGoogleDriveService ()
 

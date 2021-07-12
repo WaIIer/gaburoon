@@ -8,8 +8,8 @@
 
   <ItemGroup>
     <Compile Include="Util.fs" />
-    <Compile Include="Logger.fs" />
     <Compile Include="Model.fs" />
+    <Compile Include="Logger.fs" />
     <Compile Include="Setup.fs" />
     <Compile Include="Azure.fs" />
     <Compile Include="DataBase.fs" />
