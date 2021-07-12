@@ -7,53 +7,103 @@ open Gaburoon.Logger
 open Gaburoon.Model
 open System.Threading.Tasks
 open System
-open Google.Apis.Drive.v3.Data
 open Gaburoon.DataBase
 open System.Text.RegularExpressions
 open Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models
+open System.Net
+open System.IO
 
-let private deleteMessage (message: SocketMessage) (dbEntry: DbEntry) =
+/// Send Image to Discord
+let private sendImage (textChannel: ISocketMessageChannel) path message contentType =
+    let restUserMessage =
+        textChannel.SendFileAsync(path, message, false, isSpoiler = (contentType = NSFW))
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    System.IO.File.Delete path |> ignore
+
+    restUserMessage
+
+/// Asynchronously delete command message
+let private deletCommandMessage (commandMessage: SocketMessage) =
     try
-        logMsg $"Trying to delete message with id {dbEntry.DiscordMessageId.Value}"
+        commandMessage.DeleteAsync()
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
 
-        if dbEntry.IsRemoved then
-            logMsg $"Message already deleted"
-        else
-            message.Channel.DeleteMessageAsync(dbEntry.DiscordMessageId.Value |> uint64)
-            |> Async.AwaitTask
-            |> Async.RunSynchronously
-
-            logMsg $"Message deleted successfully"
-
-            dbMarkRemoved dbEntry.DiscordMessageId.Value
+        logMsg "Command message deleted"
     with
-    | e -> logError $"Failed to delete message with id {dbEntry.DiscordMessageId.Value}: {e |> string}"
+    | e -> logDebug $"Failed to delete command message: {e}"
 
-    Task.CompletedTask
+/// Delete discord message and update database to reflect that the post has been deleted
+let private deleteMessage (commandMessage: SocketMessage) (dbEntry: DbEntry) =
+    logMsg $"Trying to delete message with id {dbEntry.DiscordMessageId.Value}"
+
+    commandMessage.Channel.DeleteMessageAsync(dbEntry.DiscordMessageId.Value |> uint64)
+    |> Async.AwaitTask
+    |> Async.RunSynchronously
+
+    logMsg $"Message deleted successfully"
+
+    dbMarkRemoved dbEntry.DiscordMessageId.Value
+
+/// Delete the original post and post a new version that is spoilered
+let private hideImage (commandMessage: SocketMessage) (dbEntry: DbEntry) =
+    let messageId =
+        dbEntry.DiscordMessageId.Value |> UInt64.Parse
+
+    let originalMessage =
+        commandMessage.Channel.GetMessageAsync(messageId, CacheMode.AllowDownload, RequestOptions.Default)
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+
+    originalMessage.DeleteAsync() |> ignore
+
+    let attachment = originalMessage.Attachments |> Seq.head
+
+    let webClient = new WebClient()
+    webClient.DownloadFile(Uri(attachment.Url), attachment.Filename)
+
+    /// Send as NSFW to force spoiler
+    let updatedMessage =
+        sendImage commandMessage.Channel attachment.Filename originalMessage.Content NSFW
+
+    File.Delete attachment.Filename
+
+    dbHide updatedMessage.Id originalMessage.Id
+
+
 
 /// Execute command
 /// called from onMessage
-let private handleCommand (cmd: String) (imageId: int64) (message: SocketMessage) : Task =
+let private handleCommand (cmd: String) (imageId: int64) (commandMessage: SocketMessage) : Task =
+    deletCommandMessage commandMessage
+
     logInfo $"Processing command: !{cmd} {imageId}"
     let cmd = cmd.ToUpper()
 
-    try
-        let dbEntry = getMessageInfoFromImageId imageId
+    async {
+        try
+            let dbEntry = getMessageInfoFromImageId imageId
 
-        logInfo $"Got Discord Message ID: {dbEntry.DiscordMessageId.Value}"
+            if dbEntry.IsRemoved then
+                logMsg $"Message already deleted, not running command"
+            else
+                logInfo $"Got Discord Message ID: {dbEntry.DiscordMessageId.Value}"
 
-        match cmd with
-        | "DELETE" -> deleteMessage message dbEntry
-        | "HIDE" -> Task.CompletedTask
-        | "SPOILER" -> Task.CompletedTask
-        | _ ->
-            printfn $"Unknown command {cmd}"
-            Task.CompletedTask
-    with
-    | e ->
-        printfn $"Failed to get message ID from: {imageId}"
-        printfn $"{e}"
-        Task.CompletedTask
+                match cmd with
+                | "DELETE" -> deleteMessage commandMessage dbEntry
+                | "HIDE"
+                | "SPOILER" -> hideImage commandMessage dbEntry
+                | _ -> printfn $"Unknown command {cmd}"
+        with
+        | e ->
+            printfn $"Failed to get message ID from: {imageId}"
+            printfn $"{e}"
+    }
+    |> Async.Start
+
+    Task.CompletedTask
 
 
 
@@ -67,7 +117,7 @@ let onMessage (message: SocketMessage) =
     if content.Length = 0 then
         Task.CompletedTask
     else
-        let r = @"!(\w+) ([0-9]+)"
+        let r = @"!(\w+) ([0-9]+)$"
 
         let matches =
             Regex.Match(content, r).Groups
@@ -80,8 +130,6 @@ let onMessage (message: SocketMessage) =
             Task.CompletedTask
 
 let private discordLogger (msg: LogMessage) =
-    let sev = msg.Severity
-
     (match msg.Severity with
      | LogSeverity.Critical -> logCrit
      | LogSeverity.Debug -> logDebug
@@ -141,16 +189,6 @@ let getDiscordClient discordToken (config: GaburoonConfiguration) =
     logInfo $"Bot started, posting to {guild.Name} #{channel.Name}"
 
     discordClient, channel
-
-let private sendImage (textChannel: SocketTextChannel) path message contentType =
-    let restUserMessage =
-        textChannel.SendFileAsync(path, message, false, isSpoiler = (contentType = NSFW))
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
-
-    System.IO.File.Delete path |> ignore
-
-    restUserMessage
 
 let postToDiscord model (downloadFile: DownloadFile, adultInfo: AdultInfo, rowId: int64) =
     logInfo $"posting {contentType adultInfo} image: {downloadFile.Path}"

@@ -282,3 +282,21 @@ let dbMarkRemoved messageId =
         logMsg "Successfully updated IsRemoved flag"
     else
         logMsg $"Something went wrong: {rowsUpdated} rows updated"
+
+let dbHide newMessageId oldMessageId =
+    try
+        let updateCommand =
+            $@"
+            UPDATE post_table
+            SET
+                DiscordMessageId = '{newMessageId}',
+                UpdatedTimeStamp = '{DateTime.UtcNow.ToString()}',
+                IsSpoilerRequested = 1
+            WHERE
+                DiscordMessageId = '{oldMessageId}'
+            "
+
+        logInfo $"Changing DiscordMessageId from {oldMessageId} to {newMessageId}"
+        nonQueryCommand updateCommand |> ignore
+    with
+    | e -> logError $"Failed To update datanase {3}"
