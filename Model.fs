@@ -4,12 +4,19 @@ open Discord.WebSocket
 open System.Collections
 open Google.Apis.Drive.v3
 open System.Collections.Generic
+open Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models
 
 
 
 type ContentType =
     | NSFW
     | SFW
+
+let contentType (adultInfo: AdultInfo) =
+    if adultInfo.IsAdultContent then
+        NSFW
+    else
+        SFW
 
 type Folder =
     { Name: string

@@ -87,18 +87,12 @@ let classifyImage model (downloadFile: DownloadFile) =
 
         cvClient.Endpoint <- cvClientEndpoint model.Configuration.ComputerVisionResource
 
-        let adultInfo =
-            (cvClient.AnalyzeImageInStreamWithHttpMessagesAsync(imageStream, [| Nullable(VisualFeatureTypes.Adult) |])
-             |> Async.AwaitTask
-             |> Async.RunSynchronously)
-                .Body
-                .Adult
-
-        if adultInfo.IsAdultContent then
-            NSFW
-        else
-            SFW
+        (cvClient.AnalyzeImageInStreamWithHttpMessagesAsync(imageStream, [| Nullable(VisualFeatureTypes.Adult) |])
+         |> Async.AwaitTask
+         |> Async.RunSynchronously)
+            .Body
+            .Adult
     with
     | e ->
-        logDebug $"Error getting info from azure: {e |> string}"
-        NSFW
+        logError $"Error getting info from azure: {e |> string}"
+        raise e

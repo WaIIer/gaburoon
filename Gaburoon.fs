@@ -6,76 +6,39 @@ open Gaburoon.Logger
 open Gaburoon.DataBase
 
 
-open System.Text
-open Google.Apis.Drive.v3.Data
-open System.IO
+
 open Gaburoon.Azure
 open Gaburoon.Discord
-open System.Threading.Tasks
-open Discord.WebSocket
-open System.Text.RegularExpressions
-open System
+open Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models
+
 
 let private changeSpaces = "drive"
 let private changeRequestFields = "*"
 
-/// Execute command
-/// called from onMessage
-let private handleCommand model (cmd: String) (imageId: uint64) =
-    logInfo $"Processing command: !{cmd} {imageId}"
-    let cmd = cmd.ToUpper()
-
-    try
-        let messageId = getMessageIdFromImgageId model imageId
-
-        logInfo $"Got Discord Message ID: {messageId}"
-
-        match cmd with
-        | "DELTE" -> ()
-        | "HIDE"
-        | "SPOILER" -> ()
-        | _ -> printfn $"Unknown command {cmd}"
-    with
-    | e ->
-        printfn "Failed to get message ID from: {imageId}"
-        printfn $"{e}"
-
-    Task.CompletedTask
-
-
-
-/// Run this function whenever a message is posted in Gaburoon's text channel
-/// Look for a command (![command] [post id])
-/// Process command if it matches syntax
-let private onMessage model (message: SocketMessage) =
-    let content = message.Content
-
-    if content.Length = 0 then
-        Task.CompletedTask
-    else
-        let r = @"!(\w+) ([0-9]+)"
-
-        let matches =
-            Regex.Match(content, r).Groups
-            |> Seq.map (fun group -> group.Value)
-            |> Array.ofSeq
-        // If valid command
-        if (matches |> Array.length) = 3 then
-            handleCommand model matches.[1] (matches.[2] |> UInt64.Parse)
-        else
-            Task.CompletedTask
-
 let getContentType model (downloadFile: DownloadFile) =
     logInfo $"Getting content type of {downloadFile.Path}"
 
-    let (_, parent) =
-        model.ValidFolders.[downloadFile.GoogleFile.Parents |> Seq.head]
+    let adultInfo =
+        try
+            classifyImage model downloadFile
+        with
+        | _ ->
+            logMsg $"Setting image to NSFW due to failure to retrieve adultInfo"
+            let ai = AdultInfo()
+            ai.IsAdultContent <- true
+            ai
 
-    if parent.ContentType = NSFW then
-        logInfo $"Setting {downloadFile.Path} to NSFW because it is in an NSFW folder"
-        (downloadFile, NSFW)
-    else
-        downloadFile, (classifyImage model downloadFile)
+
+    if not adultInfo.IsAdultContent then
+        let (_, parent) =
+            model.ValidFolders.[downloadFile.GoogleFile.Parents |> Seq.head]
+
+        if parent.ContentType = NSFW then
+            logInfo $"Setting {downloadFile.Path} to NSFW because it is in an NSFW folder"
+            adultInfo.IsAdultContent <- true
+
+
+    downloadFile, adultInfo
 
 
 
@@ -100,9 +63,15 @@ let private lookForChanges model startToken =
     |> Seq.filter isAllowedExtension
     |> Seq.filter (validateFile model)
     |> Seq.map (
-        (downloadFile model)
-        >> (getContentType model)
-        >> (postToDiscord model)
+        (fun file -> downloadFile model file)
+        >> getContentType model
+        >> (fun (downloadFile, adultInfo) -> downloadFile, adultInfo, insertRow downloadFile adultInfo)
+        >> (fun (downloadFile, adultInfo, rowId) ->
+            try
+                (postToDiscord model (downloadFile, adultInfo, rowId), (uploadImageInformation downloadFile adultInfo))
+                |> (updateRowInfo rowId)
+            with
+            | e -> logDebug $"Failed to post to discord {e}")
     )
     |> Seq.iter ignore
 
