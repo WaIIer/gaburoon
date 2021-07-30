@@ -72,6 +72,35 @@ let private hideImage (commandMessage: SocketMessage) (dbEntry: DbEntry) =
 
     dbHide updatedMessage.Id originalMessage.Id
 
+let private showImageInfo (commandMessage: SocketMessage) (dbEntry: DbEntry) =
+    try
+        let imageInfo = getImageInfo dbEntry.GoogleImageId
+
+        let messageText =
+            [ $"Id: {dbEntry.ImageId.Value} Name: {dbEntry.ImageName}"
+              $"Uploader: {dbEntry.FileOwners}"
+              $"""[Google Drive Link]("{dbEntry.GoogleImageUrl}")""" ]
+            |> String.concat "\n"
+
+        let embed = EmbedBuilder()
+        embed.Title <- $"{Path.GetFileNameWithoutExtension dbEntry.ImageName} Info:"
+
+        let uploaderField = EmbedFieldBuilder()
+
+        let embed =
+            embed.WithDescription "Uploader: {dbEntry.FileOwners}\nA second description"
+
+        commandMessage.Channel.SendMessageAsync("", false, embed.Build())
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+        |> ignore
+
+    with
+    | e -> printfn $"{e}"
+
+
+
+
 
 
 /// Execute command
@@ -95,6 +124,7 @@ let private handleCommand (cmd: String) (imageId: int64) (commandMessage: Socket
                 | "DELETE" -> deleteMessage commandMessage dbEntry
                 | "HIDE"
                 | "SPOILER" -> hideImage commandMessage dbEntry
+                | "INFO" -> showImageInfo commandMessage dbEntry
                 | _ -> printfn $"Unknown command {cmd}"
         with
         | e ->
@@ -194,7 +224,7 @@ let postToDiscord model (downloadFile: DownloadFile, adultInfo: AdultInfo, rowId
     logInfo $"posting {contentType adultInfo} image: {downloadFile.Path}"
 
     try
-        (sendImage model.TextChannel downloadFile.Path $"{rowId}: {downloadFile.Path}" (contentType adultInfo))
+        (sendImage model.TextChannel downloadFile.Path $"{rowId}: {Path.GetFileNameWithoutExtension downloadFile.Path}" (contentType adultInfo))
             .Id
         |> int64
 

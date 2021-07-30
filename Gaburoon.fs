@@ -10,10 +10,12 @@ open Gaburoon.DataBase
 open Gaburoon.Azure
 open Gaburoon.Discord
 open Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models
+open System.IO
 
 
 let private changeSpaces = "drive"
 let private changeRequestFields = "*"
+let mutable private tokenPath = ""
 
 let getContentType model (downloadFile: DownloadFile) =
     logInfo $"Getting content type of {downloadFile.Path}"
@@ -43,8 +45,6 @@ let getContentType model (downloadFile: DownloadFile) =
 
 
 let private lookForChanges model startToken =
-    logInfo "Looking for changes"
-
     let service = model.GoogleDriveService
 
     let request = service.Changes.List(startToken)
@@ -79,18 +79,28 @@ let private lookForChanges model startToken =
         startToken
     else
         logInfo $"Using new token {execution.NewStartPageToken}"
+        File.WriteAllText(tokenPath, execution.NewStartPageToken)
         execution.NewStartPageToken
 
 
 
 let runGaburoon model =
     let mutable startToken =
-        model
-            .GoogleDriveService
-            .Changes
-            .GetStartPageToken()
-            .Execute()
-            .StartPageTokenValue
+        tokenPath <- Path.Join("tokens", $"{model.Configuration.DiscordGuild}-{model.Configuration.TextChannel}-token")
+
+        if File.Exists tokenPath then
+            File.ReadAllText tokenPath
+        else
+            if not (Directory.Exists(Path.GetDirectoryName tokenPath)) then
+                Directory.CreateDirectory(Path.GetDirectoryName tokenPath)
+                |> ignore
+
+            model
+                .GoogleDriveService
+                .Changes
+                .GetStartPageToken()
+                .Execute()
+                .StartPageTokenValue
 
     while true do
         startToken <-
@@ -99,6 +109,12 @@ let runGaburoon model =
             with
             | e ->
                 logError $"{e |> string}"
-                startToken
 
-        System.Threading.Thread.Sleep(10 * 1000)
+                model
+                    .GoogleDriveService
+                    .Changes
+                    .GetStartPageToken()
+                    .Execute()
+                    .StartPageTokenValue
+
+        System.Threading.Thread.Sleep(2 * 1000)

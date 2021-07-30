@@ -26,6 +26,18 @@ type DbEntry =
       IsSpoilerRequested: bool
       UpdatedTimeStamp: DateTime }
 
+type ImageTableEntry =
+    { ImageId: int64
+      TIMESTAMP: DateTime
+      GoogleImageId: string
+      GoogleIamgeURL: string
+      AdultScore: double
+      IsAdult: bool
+      RacyScore: double
+      IsRacy: bool
+      GoryScore: double
+      IsGory: bool }
+
 
 /// Execute query on database where the command result does not matter
 /// Returns the number of rows updated
@@ -61,7 +73,7 @@ let private executeScalar commandText =
         logError $"Failed to execute query:{System.Environment.NewLine}{commandText}"
         raise e
 
-let private executeReader commandText =
+let private executePostTableReader commandText =
     use connection = new SqliteConnection(_connectionString)
 
     try
@@ -99,8 +111,30 @@ let private executeReader commandText =
         logError $"Failed to execute query:{System.Environment.NewLine}{commandText}"
         raise e
 
+let private executeImageTableReader commandText =
+    use connection = new SqliteConnection(_connectionString)
 
+    try
+        connection.Open()
+        let command = connection.CreateCommand()
+        command.CommandText <- commandText
+        use reader = command.ExecuteReader()
 
+        [ while reader.Read() do
+              { ImageId = reader.GetInt64 0
+                TIMESTAMP = reader.GetString 1 |> DateTime.Parse
+                GoogleImageId = reader.GetString 2
+                GoogleIamgeURL = reader.GetString 3
+                AdultScore = reader.GetDouble 4
+                IsAdult = (reader.GetInt64 5 = 1L)
+                RacyScore = reader.GetDouble 6
+                IsRacy = (reader.GetInt64 7 = 1L)
+                GoryScore = reader.GetDouble 8
+                IsGory = (reader.GetInt64 9 = 1L) } ]
+    with
+    | e ->
+        logError $"Failed to execute query:{System.Environment.NewLine}{commandText}"
+        raise e
 
 /// Get Discord message ID associated with the input imageId
 let getMessageInfoFromImageId imageId =
@@ -113,7 +147,9 @@ let getMessageInfoFromImageId imageId =
         "
 
     try
-        let csv = executeReader getDiscordMessageIdCommand
+        let csv =
+            executePostTableReader getDiscordMessageIdCommand
+
         logMsg $"Got {csv} from scalar query"
         csv
     with
@@ -300,3 +336,17 @@ let dbHide newMessageId oldMessageId =
         nonQueryCommand updateCommand |> ignore
     with
     | e -> logError $"Failed To update datanase {3}"
+
+let getImageInfo googleImageId =
+    let getImageByGoogleImageIdQuery =
+        $@"
+        SELECT * from image_table
+        WHERE
+            GoogleImageId = '{googleImageId}'
+        "
+
+    try
+        executeImageTableReader getImageByGoogleImageIdQuery
+        |> List.head
+    with
+    | e -> raise e
