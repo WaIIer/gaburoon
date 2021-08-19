@@ -105,6 +105,7 @@ let runGaburoon model =
     while true do
         startToken <-
             try
+                removeSelfDestructMessages model
                 lookForChanges model startToken
             with
             | e ->

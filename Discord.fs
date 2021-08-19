@@ -5,6 +5,7 @@ open Discord
 
 open Gaburoon.Logger
 open Gaburoon.Model
+open Gaburoon.Trace
 open System.Threading.Tasks
 open System
 open Gaburoon.DataBase
@@ -12,6 +13,19 @@ open System.Text.RegularExpressions
 open Microsoft.Azure.CognitiveServices.Vision.ComputerVision.Models
 open System.Net
 open System.IO
+open FSharp.Collections
+
+let mutable private selfDestructingMessages = ResizeArray<uint64 * DateTime>()
+
+let removeSelfDestructMessages (model: GaburoonModel) =
+    if (not (selfDestructingMessages |> Seq.isEmpty))
+       && ((selfDestructingMessages |> Seq.head |> snd) < DateTime.UtcNow) then
+        model.TextChannel.DeleteMessageAsync(selfDestructingMessages |> Seq.head |> fst)
+        |> Async.AwaitTask
+        |> Async.RunSynchronously
+        |> ignore
+
+        selfDestructingMessages.RemoveAt 0
 
 /// Send Image to Discord
 let private sendImage (textChannel: ISocketMessageChannel) path message contentType =
@@ -91,17 +105,33 @@ let private showImageInfo (commandMessage: SocketMessage) (dbEntry: DbEntry) =
             embed.WithDescription "Uploader: {dbEntry.FileOwners}\nA second description"
 
         commandMessage.Channel.SendMessageAsync("", false, embed.Build())
-        |> Async.AwaitTask
-        |> Async.RunSynchronously
         |> ignore
 
     with
-    | e -> printfn $"{e}"
+    | e -> logDebug $"{e}"
 
+let private getTitle (commandMessage: SocketMessage) (dbEntry: DbEntry) =
+    try
+        let imageMessage =
+            commandMessage.Channel.GetMessageAsync(id = (dbEntry.DiscordMessageId.Value |> UInt64.Parse))
+            |> Async.AwaitTask
+            |> Async.RunSynchronously
 
+        let imageUrl =
+            (imageMessage.Attachments |> Seq.head).Url
 
+        let showName = getShowName imageUrl
 
+        let messageBody =
+            $"{showName.English} ({showName.Romaji})"
 
+        (commandMessage.Channel.SendMessageAsync(messageBody)
+         |> Async.AwaitTask
+         |> Async.RunSynchronously)
+            .Id
+        |> fun id -> selfDestructingMessages.Add(id, DateTime.UtcNow.AddSeconds(30.0))
+    with
+    | e -> logDebug $"{e}"
 
 /// Execute command
 /// called from onMessage
@@ -124,6 +154,9 @@ let private handleCommand (cmd: String) (imageId: int64) (commandMessage: Socket
                 | "DELETE" -> deleteMessage commandMessage dbEntry
                 | "HIDE"
                 | "SPOILER" -> hideImage commandMessage dbEntry
+                | "TITLE"
+                | "SHOW"
+                | "NAME" -> getTitle commandMessage dbEntry
                 | "INFO" -> showImageInfo commandMessage dbEntry
                 | _ -> printfn $"Unknown command {cmd}"
         with
@@ -224,7 +257,11 @@ let postToDiscord model (downloadFile: DownloadFile, adultInfo: AdultInfo, rowId
     logInfo $"posting {contentType adultInfo} image: {downloadFile.Path}"
 
     try
-        (sendImage model.TextChannel downloadFile.Path $"{rowId}: {Path.GetFileNameWithoutExtension downloadFile.Path}" (contentType adultInfo))
+        (sendImage
+            model.TextChannel
+            downloadFile.Path
+            $"{rowId}: {Path.GetFileNameWithoutExtension downloadFile.Path}"
+            (contentType adultInfo))
             .Id
         |> int64
 
